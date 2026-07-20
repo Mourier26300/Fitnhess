@@ -161,7 +161,7 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 const round1 = x => Math.round(x*10)/10;
 /* clavier iPhone FR : accepter la virgule décimale */
 const num = v => { const n = parseFloat(String(v??'').replace(',','.')); return isNaN(n) ? null : n; };
-const GEMINI_MODEL = 'gemini-1.5-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
 /* sauvegarde regroupée */
 let saveTimer = null;
