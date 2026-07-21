@@ -87,6 +87,14 @@ details.hist .body{padding:0 16px 14px}
 .bar{height:9px;background:var(--n-200);border-radius:var(--r-pill);overflow:hidden;margin-top:8px}
 .bar i{display:block;height:100%;background:var(--orange-500);border-radius:var(--r-pill);transition:width .3s ease}
 .bar i.over{background:var(--orange-800)}
+.macro-grid{display:grid;gap:10px;margin-top:10px}
+.macro-row{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:center}
+.macro-lab{font-size:13px;font-weight:700;color:var(--n-700)}
+.macro-val{font-size:12px;color:var(--n-600);font-weight:600;white-space:nowrap}
+.bar.prot i{background:var(--olive-600)}
+.bar.gluc i{background:var(--orange-500)}
+.bar.lip i{background:#b98a3e}
+.bar.macro{margin-top:0}
 .entry{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--n-300);font-size:14px}
 .entry:last-child{border-bottom:none}
 .finish-bar{position:fixed;bottom:calc(74px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
@@ -139,7 +147,7 @@ const Store = (() => {
 ========================================================= */
 let S = {
   settings: { sexe:'H', age:null, taille:null, objectifPoids:null, activite:1.55, rythme:-300,
-              protGkg:1.8, lipPct:30, geminiKey:'', geminiModel:'gemini-2.5-flash' },
+              protGkg:1.8, lipPct:30, geminiKey:'', geminiModel:'gemini-2.5-flash-lite' },
   weights: [],    // {date:'YYYY-MM-DD', kg}
   templates: [],  // muscu — {id,name,exercises:[string]}
   workouts: [],   // {id,templateId,templateName,date ISO,exercises:[{name,sets:[{reps,weight}]}]}
@@ -161,7 +169,7 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 const round1 = x => Math.round(x*10)/10;
 /* clavier iPhone FR : accepter la virgule décimale */
 const num = v => { const n = parseFloat(String(v??'').replace(',','.')); return isNaN(n) ? null : n; };
-const geminiModel = () => (S.settings.geminiModel || 'gemini-2.5-flash');
+const geminiModel = () => (S.settings.geminiModel || 'gemini-2.5-flash-lite');
 
 /* sauvegarde regroupée */
 let saveTimer = null;
@@ -174,6 +182,7 @@ document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState=
    CALCULS OBJECTIFS (locaux, aucun appel IA)
    BMR Mifflin-St Jeor, TDEE = BMR x facteur, cible = TDEE + rythme
 ========================================================= */
+function profilIncomplet(){ const s=S.settings; return !currentWeight() || !s.age || !s.taille; }
 function currentWeight(){ const w=[...S.weights].sort((a,b)=>b.date.localeCompare(a.date))[0]; return w?w.kg:null; }
 function bmr(){
   const st=S.settings, p=currentWeight();
@@ -356,6 +365,9 @@ function dashboard(){
 function lastNDays(n){ const days=[]; for(let i=n-1;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); days.push(localDate(d)); } return days; }
 function avg(vals){ const v=vals.filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; }
 function kcalOfDay(d){ const list=dayMeals(d); return list.length?Math.round(sumMeals(list).kcal):null; }
+function protOfDay(d){ const list=dayMeals(d); return list.length?Math.round(sumMeals(list).p):null; }
+function glucOfDay(d){ const list=dayMeals(d); return list.length?Math.round(sumMeals(list).g):null; }
+function lipOfDay(d){ const list=dayMeals(d); return list.length?Math.round(sumMeals(list).l):null; }
 function sleepOfDay(d){ const h=S.health.find(x=>x.date===d); return h&&h.sommeilH!=null?h.sommeilH:null; }
 function stepsOfDay(d){ const h=S.health.find(x=>x.date===d); return h&&h.pas!=null?h.pas:null; }
 /* Découpe les jours d'un mois en semaines (lundi->dimanche) et renvoie la moyenne par semaine */
@@ -370,6 +382,7 @@ function weeklyBuckets(getter){
 function trendsSection(){
   const period=ui.dashPeriod;
   const target=kcalTarget()?kcalTarget().kcal:null;
+  const mtT=macroTargets();
   const metrics=[
     {key:'kcal', label:'Calories consommées', unit:'kcal', get:kcalOfDay, ref:target, round:0},
     {key:'sleep', label:'Sommeil', unit:'h', get:sleepOfDay, ref:8, round:1},
@@ -382,32 +395,32 @@ function trendsSection(){
     const today=localDate(); const week=lastNDays(7);
     const cards=metrics.map(m=>{
       const todayVal=m.get(today); const moy=avg(week.map(m.get));
-      if(todayVal==null && moy==null) return '';
       const fmt=v=>v==null?'—':(m.round?Math.round(v):round1(v)).toLocaleString('fr-FR');
       const diff=(todayVal!=null&&moy!=null)?todayVal-moy:null;
-      const diffTxt=diff==null?'':`<span class="pill ${diff>=0?'':''}">${diff>=0?'+':''}${(m.round?Math.round(diff):round1(diff)).toLocaleString('fr-FR')} vs moy 7j</span>`;
+      const diffTxt=diff==null?'':`<span class="pill">${diff>=0?'+':''}${(m.round?Math.round(diff):round1(diff)).toLocaleString('fr-FR')} vs moy 7j</span>`;
+      const empty=(todayVal==null&&moy==null);
+      const goalTxt = m.ref!=null ? ` <span class="muted small">/ ${(m.round?Math.round(m.ref):round1(m.ref)).toLocaleString('fr-FR')} ${m.unit}</span>` : '';
       return `<div class="card"><div class="row"><b>${m.label}</b>${diffTxt}</div>
-        <div class="row" style="margin-top:8px;align-items:flex-end">
-          <div><div class="v" style="font-size:26px">${fmt(todayVal)}<span class="muted small"> ${m.unit}</span></div><div class="l">aujourd'hui</div></div>
+        ${empty?`<p class="muted small" style="margin-top:8px">Pas encore de données. ${['kcal','prot','gluc','lip'].includes(m.key)?'Journalisez vos repas dans Nutrition.':'Saisissez vos données dans Santé.'}</p>`
+        :`<div class="row" style="margin-top:8px;align-items:flex-end">
+          <div><div class="v" style="font-size:26px">${fmt(todayVal)}<span class="muted small"> ${m.unit}</span>${goalTxt}</div><div class="l">aujourd'hui</div></div>
           <div style="text-align:right"><div style="font-size:18px;font-weight:600;color:var(--n-600)">${fmt(moy)}<span class="muted small"> ${m.unit}</span></div><div class="l">moyenne 7 j</div></div>
-        </div></div>`;
-    }).filter(Boolean).join('');
-    if(!cards) return '';
+        </div>`}</div>`;
+    }).join('');
     return '<h2>Aujourd\'hui vs 7 jours</h2>'+cards;
   }
 
   // semaine = 7 barres quotidiennes ; mois = barres hebdomadaires (moyennes)
-  const n = period==='semaine'?7:28;
   const cards=metrics.map(m=>{
     let vals, labels, moy;
     if(period==='semaine'){ const days=lastNDays(7); vals=days.map(m.get); labels=days; moy=avg(vals); }
     else { const b=weeklyBuckets(m.get); vals=b.map(x=>x.val); labels=b.map(x=>x.label); moy=avg(vals); }
-    if(!vals.some(v=>v!=null)) return '';
+    const hasData=vals.some(v=>v!=null);
     const moyTxt=moy!=null?`<span class="pill">moy ${(m.round?Math.round(moy):round1(moy)).toLocaleString('fr-FR')} ${m.unit}</span>`:'';
     return `<div class="card"><div class="row"><b>${m.label}</b>${moyTxt}</div>
-      ${barChart(vals, labels, m.ref, period==='mois')}</div>`;
-  }).filter(Boolean).join('');
-  if(!cards) return '';
+      ${hasData?barChart(vals, labels, m.ref, period==='mois')
+        :`<p class="muted small" style="margin-top:8px">Pas encore de données. ${['kcal','prot','gluc','lip'].includes(m.key)?'Journalisez vos repas dans Nutrition.':'Saisissez vos données dans Santé.'}</p>`}</div>`;
+  }).join('');
   const titre=period==='semaine'?'Tendances · 7 jours':'Tendances · 4 semaines';
   return `<h2>${titre}</h2>${cards}`;
 }
@@ -613,7 +626,19 @@ function nutritionScreen(){
     <div class="card">
       <div class="row"><b>${Math.round(tot.kcal)} kcal</b>${target?`<span class="pill">reste ${Math.max(0,Math.round(target-tot.kcal))}</span>`:''}</div>
       ${target?`<div class="bar"><i class="${tot.kcal>target?'over':''}" style="width:${Math.min(100,tot.kcal/target*100)}%"></i></div>`:''}
-      <p class="muted small" style="margin-top:6px">P ${Math.round(tot.p)}${mt?'/'+mt.p:''} g · G ${Math.round(tot.g)}${mt?'/'+mt.g:''} g · L ${Math.round(tot.l)}${mt?'/'+mt.l:''} g${kt?` · cible ${kt.mode==='fitbit'?'Fitbit':'estimée'}`:''}</p>
+      <p class="muted small" style="margin-top:6px">${kt?`cible ${kt.mode==='fitbit'?'Fitbit':'estimée'}`:'objectif non défini'}</p>
+      <div class="macro-grid">
+        ${[['prot','Prot.','p'],['gluc','Gluc.','g'],['lip','Lip.','l']].map(([cls,lab,k])=>{
+          const val=Math.round(tot[k]); const goal=mt?mt[k]:null;
+          const pct=goal?Math.min(100,val/goal*100):0;
+          const goalTxt = goal!=null ? (val+' / '+goal+' g') : (profilIncomplet() ? (val+' / — g') : (val+' g'));
+          return `<div class="macro-row">
+            <span class="macro-lab">${lab}</span>
+            <div class="bar macro ${cls}"><i style="width:${pct}%"></i></div>
+            <span class="macro-val">${goalTxt}</span></div>`;
+        }).join('')}
+      </div>
+      ${!mt&&profilIncomplet()?`<p class="muted small" style="margin-top:8px">Renseignez profil, poids et objectif dans Réglages pour afficher vos objectifs de macros.</p>`:''}
     </div>
     ${!entries.length&&hasYesterday?`<button class="btn ghost full" style="margin-bottom:10px" onclick="copyDayFromYesterday()">Dupliquer toute la journée d'hier</button>`:''}
     ${MEALS.map(([key,label])=>{
@@ -997,7 +1022,7 @@ function settingsScreen(){
       <input type="password" value="${esc(st.geminiKey)}" placeholder="AQ.… ou AIza…" oninput="S.settings.geminiKey=this.value;persistSoon()">
       <label style="margin-top:10px">Modèle</label>
       <select onchange="S.settings.geminiModel=this.value;persistSoon()">
-        ${['gemini-2.5-flash','gemini-2.5-flash-lite','gemini-2.5-pro','gemini-2.0-flash'].map(m=>`<option value="${m}" ${(st.geminiModel||'gemini-2.5-flash')===m?'selected':''}>${m}</option>`).join('')}</select>
+        ${['gemini-2.5-flash-lite','gemini-2.5-flash','gemini-2.5-pro'].map(m=>`<option value="${m}" ${(st.geminiModel||'gemini-2.5-flash-lite')===m?'selected':''}>${m}</option>`).join('')}</select>
       <p class="muted small" style="margin-top:6px">Gratuite sur aistudio.google.com. Utilisée pour la photo d'assiette, les screenshots Strava et le coach. Les appels partent directement de votre appareil vers Google. Si un appel renvoie une erreur 404, changez de modèle ici.</p>
     </div>
     <h2>Données</h2>
@@ -1033,7 +1058,7 @@ async function importData(file){
 }
 async function wipeData(){
   if(!confirm('Effacer TOUTES les données ? Irréversible.'))return;
-  S={settings:{sexe:'H',age:null,taille:null,objectifPoids:null,activite:1.55,rythme:-300,protGkg:1.8,lipPct:30,geminiKey:'',geminiModel:'gemini-2.5-flash'},
+  S={settings:{sexe:'H',age:null,taille:null,objectifPoids:null,activite:1.55,rythme:-300,protGkg:1.8,lipPct:30,geminiKey:'',geminiModel:'gemini-2.5-flash-lite'},
      weights:[],templates:[],workouts:[],draft:null,runs:[],foods:[],meals:[],health:[],coach:[]};
   await persist(); render();
 }
